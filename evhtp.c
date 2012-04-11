@@ -115,6 +115,7 @@ RB_GENERATE(status_code_tree, status_code, entry, status_code_cmp);
         RB_INSERT(status_code_tree, &status_code_head, c);           \
 } while (0)
 
+
 static void
 status_code_init(void) {
     if (scode_tree_initialized > 0) {
@@ -180,6 +181,24 @@ status_code_init(void) {
 
     scode_tree_initialized = 1;
 }     /* status_code_init */
+
+static void
+status_code_deinit(void)
+{
+    struct status_code *c = NULL,  *c_next = NULL;
+
+    if( scode_tree_initialized == 0 )
+      return;
+
+    for( c = RB_MIN( status_code_tree, &status_code_head ); c != NULL; c = c_next )
+    {
+      c_next = RB_NEXT( status_code_tree, &status_code_head, c );
+      RB_REMOVE( status_code_tree, &status_code_head, c );
+      free( c );
+    }
+
+    scode_tree_initialized = 0;
+}
 
 const char *
 status_code_to_str(evhtp_res code) {
@@ -2309,6 +2328,12 @@ evhtp_bind_socket(evhtp_t * htp, const char * baddr, uint16_t port, int backlog)
     return evhtp_bind_sockaddr(htp, sa, sin_len, backlog);
 } /* evhtp_bind_socket */
 
+void
+evhtp_unbind_socket(evhtp_t *htp)
+{
+  evconnlistener_free(htp->server);
+}
+
 evhtp_callbacks_t *
 evhtp_callbacks_new(unsigned int buckets) {
     evhtp_callbacks_t * cbs;
@@ -2420,10 +2445,14 @@ evhtp_callback_free(evhtp_callback_t * callback) {
         case evhtp_callback_type_regex:
             if (callback->val.regex) {
                 regfree(callback->val.regex);
+                free(callback->val.regex);
             }
             break;
 #endif
     }
+
+    if( callback->hooks )
+      free( callback->hooks );
 
     free(callback);
 
@@ -2976,5 +3005,16 @@ evhtp_new(evbase_t * evbase, void * arg) {
     evhtp_set_gencb(htp, _evhtp_default_request_cb, (void *)htp);
 
     return htp;
+}
+
+void
+evhtp_free( evhtp_t *htp )
+{
+  evhtp_callbacks_free( htp->callbacks );
+  //evhtp_callback_free( htp->defaults );
+
+  status_code_deinit();
+
+  free( htp );
 }
 

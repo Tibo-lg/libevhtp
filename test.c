@@ -25,6 +25,9 @@ struct pauser {
     struct timeval  * tv;
 };
 
+evbase_t         * evbase = NULL;
+evhtp_t          * htp    = NULL;
+
 /* pause testing */
 static void
 resume_request_timer(int sock, short which, void * arg) {
@@ -446,13 +449,16 @@ parse_args(int argc, char ** argv) {
 
 void
 sigint(int s) {
+    event_base_loopbreak( evbase );
+    evhtp_unbind_socket( htp );
+    evhtp_free( htp );
+    event_base_free( evbase );
     exit(0);
 }
 
 int
 main(int argc, char ** argv) {
-    evbase_t         * evbase = NULL;
-    evhtp_t          * htp    = NULL;
+    
     evhtp_callback_t * cb_1   = NULL;
     evhtp_callback_t * cb_2   = NULL;
     evhtp_callback_t * cb_3   = NULL;

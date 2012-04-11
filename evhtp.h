@@ -464,6 +464,7 @@ struct evhtp_ssl_cfg_s {
  * @return a new evhtp_t structure or NULL on error
  */
 evhtp_t * evhtp_new(evbase_t * evbase, void * arg);
+void      evhtp_free( evhtp_t *htp );
 
 void      evhtp_set_timeouts(evhtp_t * htp, struct timeval * r, struct timeval * w);
 int       evhtp_ssl_use_threads(void);
@@ -563,6 +564,7 @@ int  evhtp_set_hook(evhtp_hooks_t ** hooks, evhtp_hook_type type, void * cb, voi
 
 int  evhtp_bind_socket(evhtp_t * htp, const char * addr, uint16_t port, int backlog);
 int  evhtp_bind_sockaddr(evhtp_t * htp, struct sockaddr *, size_t sin_len, int backlog);
+void evhtp_unbind_socket(evhtp_t *htp);
 
 int  evhtp_use_threads(evhtp_t * htp, evhtp_thread_init_cb init_cb, int nthreads, void * arg);
 
