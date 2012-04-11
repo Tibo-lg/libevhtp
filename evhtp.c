@@ -3011,7 +3011,6 @@ void
 evhtp_free( evhtp_t *htp )
 {
   evhtp_callbacks_free( htp->callbacks );
-  //evhtp_callback_free( htp->defaults );
 
   status_code_deinit();
 
