@@ -68,6 +68,7 @@ typedef struct evhtp_authority_s  evhtp_authority_t;
 typedef struct evhtp_request_s    evhtp_request_t;
 typedef struct evhtp_hooks_s      evhtp_hooks_t;
 typedef struct evhtp_connection_s evhtp_connection_t;
+typedef struct evhtp_connections_s evhtp_connections_t;
 typedef struct evhtp_ssl_cfg_s    evhtp_ssl_cfg_t;
 typedef uint16_t                  evhtp_res;
 typedef uint8_t                   evhtp_error_flags;
@@ -244,6 +245,9 @@ struct evhtp_s {
 #ifndef EVHTP_DISABLE_EVTHR
     pthread_mutex_t   * lock;     /**< parent lock for add/del cbs in threads */
 #endif
+    
+    evhtp_connections_t * connections; /**< list of connections, to be able to free them at shutdown */
+
     evhtp_callbacks_t * callbacks;
     evhtp_defaults_t    defaults;
 
@@ -404,7 +408,10 @@ struct evhtp_connection_s {
     int               error;
     int               owner; /*< set to 1 if this structure owns the bufferevent */
     evhtp_request_t * request;
+    LIST_ENTRY(evhtp_connection_s) next;
 };
+
+LIST_HEAD(evhtp_connections_s, evhtp_connection_s); 
 
 struct evhtp_hooks_s {
     evhtp_hook_headers_start_cb   on_headers_start;
@@ -468,8 +475,9 @@ void      evhtp_free( evhtp_t *htp );
 
 void      evhtp_set_timeouts(evhtp_t * htp, struct timeval * r, struct timeval * w);
 int       evhtp_ssl_use_threads(void);
+void      evhtp_ssl_unuse_threads(void); 
 int       evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * ssl_cfg);
-
+void      evhtp_ssl_deinit( evhtp_t *htp ); 
 
 /**
  * @brief creates a lock around callbacks and hooks, allowing for threaded
@@ -567,6 +575,7 @@ int  evhtp_bind_sockaddr(evhtp_t * htp, struct sockaddr *, size_t sin_len, int b
 void evhtp_unbind_socket(evhtp_t *htp);
 
 int  evhtp_use_threads(evhtp_t * htp, evhtp_thread_init_cb init_cb, int nthreads, void * arg);
+void evhtp_unuse_threads(evhtp_t *htp);
 
 void evhtp_send_reply(evhtp_request_t * request, evhtp_res code);
 
@@ -841,6 +850,12 @@ evbev_t * evhtp_connection_take_ownership(evhtp_connection_t * connection);
  */
 void evhtp_connection_free(evhtp_connection_t * connection);
 
+/**
+ * @brief free's all connections of a connections list
+ *
+ * @param connections
+ */
+void evhtp_connections_free(evhtp_t *htp);
 
 #ifdef __cplusplus
 }

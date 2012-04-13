@@ -237,7 +237,7 @@ static htparse_hooks request_psets = {
     .on_msg_complete    = _evhtp_request_parser_fini
 };
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
 static int             session_id_context    = 1;
 static int             ssl_num_locks;
 static evhtp_mutex_t * ssl_locks;
@@ -1320,7 +1320,7 @@ _evhtp_connection_accept(evbase_t * evbase, evhtp_connection_t * connection) {
         return -1;
     }
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
     if (connection->htp->ssl_ctx != NULL) {
         connection->ssl = SSL_new(connection->htp->ssl_ctx);
         connection->bev = bufferevent_openssl_socket_new(evbase,
@@ -1334,7 +1334,7 @@ _evhtp_connection_accept(evbase_t * evbase, evhtp_connection_t * connection) {
 
     connection->bev = bufferevent_socket_new(evbase, connection->sock,
                                              BEV_OPT_CLOSE_ON_FREE | BEV_OPT_DEFER_CALLBACKS);
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
 end:
 #endif
 
@@ -1388,7 +1388,7 @@ _evhtp_connection_new(evhtp_t * htp, int sock) {
     return connection;
 }
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
 static void
 _evhtp_shutdown_eventcb(evbev_t * bev, short events, void * arg) {
 }
@@ -1443,6 +1443,8 @@ _evhtp_accept_cb(evserv_t * serv, int fd, struct sockaddr * s, int sl, void * ar
     if (!(connection = _evhtp_connection_new(htp, fd))) {
         return;
     }
+    
+    LIST_INSERT_HEAD( htp->connections, connection, next );
 
     connection->saddr = malloc(sl);
     memcpy(connection->saddr, s, sl);
@@ -1464,7 +1466,7 @@ _evhtp_accept_cb(evserv_t * serv, int fd, struct sockaddr * s, int sl, void * ar
     }
 }
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
 
 #ifndef EVHTP_DISABLE_EVTHR
 static unsigned long
@@ -2654,7 +2656,7 @@ evhtp_use_threads(evhtp_t * htp, evhtp_thread_init_cb init_cb, int nthreads, voi
     htp->thread_init_cb    = init_cb;
     htp->thread_init_cbarg = arg;
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
     evhtp_ssl_use_threads();
 #endif
 
@@ -2665,9 +2667,20 @@ evhtp_use_threads(evhtp_t * htp, evhtp_thread_init_cb init_cb, int nthreads, voi
     evthr_pool_start(htp->thr_pool);
     return 0;
 }
-#endif
 
-#ifndef EVHTP_DISABLE_EVTHR
+void
+evhtp_unuse_threads(evhtp_t * htp) {
+
+    evthr_pool_stop(htp->thr_pool);
+
+    evhtp_connections_free( htp );
+
+    evthr_pool_free(htp->thr_pool);
+#ifndef EVHTP_DISABLE_SSL
+    evhtp_ssl_unuse_threads();
+#endif
+}
+
 int
 evhtp_use_callback_locks(evhtp_t * htp) {
     if (htp == NULL) {
@@ -2738,7 +2751,7 @@ evhtp_set_post_accept_cb(evhtp_t * htp, evhtp_post_accept_cb cb, void * arg) {
     htp->defaults.post_accept_cbarg = arg;
 }
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
 #ifndef EVHTP_DISABLE_EVTHR
 int
 evhtp_ssl_use_threads(void) {
@@ -2761,6 +2774,20 @@ evhtp_ssl_use_threads(void) {
     CRYPTO_set_locking_callback(_evhtp_ssl_thread_lock);
 
     return 0;
+}
+
+void
+evhtp_ssl_unuse_threads(void) {
+  
+  if(ssl_locks_initialized != 1)
+    return;
+
+  ssl_locks_initialized = 0;
+
+  if( ssl_locks )
+    free( ssl_locks );
+  
+  return;
 }
 #endif
 
@@ -2870,6 +2897,18 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg) {
     return 0;
 }     /* evhtp_use_ssl */
 
+void
+evhtp_ssl_deinit( evhtp_t *htp ) {
+
+  SSL_CTX_free( htp->ssl_ctx );
+
+  ERR_remove_state(0);
+  ERR_free_strings();
+  EVP_cleanup();
+  CRYPTO_cleanup_all_ex_data();
+
+}
+
 #endif
 
 evbev_t *
@@ -2931,6 +2970,8 @@ evhtp_connection_free(evhtp_connection_t * connection) {
         return;
     }
 
+    LIST_REMOVE( connection, next );
+
     _evhtp_request_free(connection->request);
     _evhtp_connection_fini_hook(connection);
 
@@ -2946,7 +2987,7 @@ evhtp_connection_free(evhtp_connection_t * connection) {
 #ifdef LIBEVENT_HAS_SHUTDOWN
         bufferevent_shutdown(connection->bev, _evhtp_shutdown_eventcb);
 #else
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
         if (connection->ssl != NULL) {
             SSL_set_shutdown(connection->ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
             SSL_shutdown(connection->ssl);
@@ -2970,6 +3011,26 @@ evhtp_connection_free(evhtp_connection_t * connection) {
 
     free(connection);
 }     /* evhtp_connection_free */
+
+void
+evhtp_connections_free( evhtp_t *htp )
+{
+  evhtp_connection_t *c, *c_tmp;
+
+  if( !htp->connections )
+    return;
+
+  for( c = LIST_FIRST( htp->connections ); c != NULL; c = c_tmp )
+  {
+    c_tmp = LIST_NEXT( c, next );
+    LIST_REMOVE(c, next );
+    evhtp_connection_free( c );
+  }
+
+  free( htp->connections );
+
+  htp->connections = NULL;
+}
 
 void
 evhtp_set_timeouts(evhtp_t * htp, struct timeval * r_timeo, struct timeval * w_timeo) {
@@ -3001,6 +3062,12 @@ evhtp_new(evbase_t * evbase, void * arg) {
     htp->arg         = arg;
     htp->evbase      = evbase;
     htp->server_name = "evhtp, sucka";
+    if( !(htp->connections = calloc(sizeof(evhtp_connections_t), 1))) {
+      free(htp);
+      return NULL;
+    }
+
+    LIST_INIT(htp->connections);
 
     evhtp_set_gencb(htp, _evhtp_default_request_cb, (void *)htp);
 
@@ -3010,6 +3077,8 @@ evhtp_new(evbase_t * evbase, void * arg) {
 void
 evhtp_free( evhtp_t *htp )
 {
+  evhtp_connections_free( htp );
+
   evhtp_callbacks_free( htp->callbacks );
 
   status_code_deinit();

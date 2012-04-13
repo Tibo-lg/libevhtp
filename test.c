@@ -12,7 +12,7 @@
 int      use_threads = 0;
 int      num_threads = 0;
 #endif
-char   * bind_addr   = "0.0.0.0";
+char   * bind_addr   = NULL;
 uint16_t bind_port   = 8081;
 char   * ssl_pem     = NULL;
 char   * ssl_ca      = NULL;
@@ -358,7 +358,7 @@ set_my_connection_handlers(evhtp_connection_t * conn, void * arg) {
     return EVHTP_RES_OK;
 }
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
 static int
 dummy_ssl_verify_callback(int ok, X509_STORE_CTX * x509_store) {
     return 1;
@@ -380,7 +380,7 @@ const char * help   =
     "  -t       : Run requests in a thread (default: off)\n"
     "  -n <int> : Number of threads        (default: 0 if -t is off, 4 if -t is on)\n"
 #endif
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
     "  -s <pem> : Enable SSL and PEM       (default: NULL)\n"
     "  -c <ca>  : CA cert file             (default: NULL)\n"
     "  -C <path>: CA Path                  (default: NULL)\n"
@@ -418,11 +418,13 @@ parse_args(int argc, char ** argv) {
                 num_threads = atoi(optarg);
                 break;
 #endif
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
             case 's':
+                printf("%s\n", optarg);
                 ssl_pem     = strdup(optarg);
                 break;
             case 'c':
+                printf("%s\n", optarg);
                 ssl_ca      = strdup(optarg);
                 break;
             case 'C':
@@ -448,11 +450,43 @@ parse_args(int argc, char ** argv) {
 } /* parse_args */
 
 void
+free_args() {
+
+  if( bind_addr )
+    free( bind_addr );
+
+  if( ssl_pem )
+    free( ssl_pem );
+
+  if( ssl_ca )
+    free( ssl_ca );
+
+  if( ssl_capath )
+    free( ssl_capath );
+
+}
+
+
+void
 sigint(int s) {
     event_base_loopbreak( evbase );
+#ifndef EVHTP_DISABLE_SSL
+    evhtp_ssl_deinit( htp );
+#endif
+
+#ifndef EVHTP_DISABLE_EVTHR
+    if( use_threads )
+    {
+      evhtp_unuse_threads( htp );
+    }
+#endif
+
     evhtp_unbind_socket( htp );
     evhtp_free( htp );
     event_base_free( evbase );
+    
+    free_args();
+
     exit(0);
 }
 
@@ -471,6 +505,9 @@ main(int argc, char ** argv) {
     if (parse_args(argc, argv) < 0) {
         exit(1);
     }
+
+    if( !bind_addr )
+      bind_addr = strdup("0.0.0.0");
 
     srand((unsigned)time(NULL));
 
@@ -515,7 +552,7 @@ main(int argc, char ** argv) {
     /* set a callback to set per-connection hooks (via a post_accept cb) */
     evhtp_set_post_accept_cb(htp, set_my_connection_handlers, NULL);
 
-#ifndef DISABLE_SSL
+#ifndef EVHTP_DISABLE_SSL
     if (ssl_pem != NULL) {
         evhtp_ssl_cfg_t scfg = {
             .pemfile            = ssl_pem,
@@ -555,6 +592,7 @@ main(int argc, char ** argv) {
 
 #ifndef EVHTP_DISABLE_EVTHR
     if (use_threads) {
+        printf("Use threads\n");
         evhtp_use_threads(htp, NULL, num_threads, NULL);
     }
 #endif

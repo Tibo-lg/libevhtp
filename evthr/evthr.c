@@ -182,7 +182,6 @@ _evthr_loop(void * args) {
         fprintf(stderr, "FATAL ERROR!\n");
     }
 
-    evthr_free(thread);
     pthread_exit(NULL);
 }
 
@@ -198,6 +197,8 @@ evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
     }
 
     evthr_inc_backlog(thread);
+
+    memset( &cmd, 0, sizeof(evthr_cmd_t) );
 
     cmd.magic = _EVTHR_MAGIC;
     cmd.cb    = cb;
@@ -220,6 +221,8 @@ evthr_res
 evthr_stop(evthr_t * thread) {
     evthr_cmd_t cmd;
 
+    memset( &cmd, 0, sizeof(evthr_cmd_t) );
+
     cmd.magic = _EVTHR_MAGIC;
     cmd.cb    = NULL;
     cmd.args  = NULL;
@@ -233,6 +236,8 @@ evthr_stop(evthr_t * thread) {
     }
 
     pthread_mutex_unlock(thread->rlock);
+
+    pthread_join( *thread->thr, NULL );
 
     return EVTHR_RES_OK;
 }
@@ -297,7 +302,6 @@ evthr_new(evthr_init_cb init_cb, void * args) {
 
 int
 evthr_start(evthr_t * thread) {
-    int res;
 
     if (thread == NULL || thread->thr == NULL) {
         return -1;
@@ -307,9 +311,7 @@ evthr_start(evthr_t * thread) {
         return -1;
     }
 
-    res = pthread_detach(*thread->thr);
-
-    return res;
+    return 0;
 }
 
 void
@@ -387,8 +389,6 @@ evthr_pool_stop(evthr_pool_t * pool) {
     TAILQ_FOREACH(thr, &pool->threads, next) {
         evthr_stop(thr);
     }
-
-    memset(&pool->threads, 0, sizeof(pool->threads));
 
     return EVTHR_RES_OK;
 }
